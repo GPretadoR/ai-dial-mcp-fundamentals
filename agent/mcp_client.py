@@ -16,89 +16,136 @@ class MCPClient:
         self._session_context = None
 
     async def __aenter__(self):
-        #TODO:
-        # 1. Call `streamablehttp_client` method with `mcp_server_url` and assign to `self._streams_context`
-        # 2. Call `await self._streams_context.__aenter__()` and assign to `read_stream, write_stream, _`
-        # 3. Create `ClientSession(read_stream, write_stream)` and assign to `self._session_context`
-        # 4. Call `await self._session_context.__aenter__()` and assign it to `self.session`
-        # 5. Call `self.session.initialize()`, and print its result (to check capabilities of MCP server later)
-        # 6. return self
-        raise NotImplementedError()
+        # Create streamable HTTP client context
+        self._streams_context = streamablehttp_client(self.mcp_server_url)
+        
+        # Enter streams context and get read/write streams
+        read_stream, write_stream, _ = await self._streams_context.__aenter__()
+        
+        # Create ClientSession with streams
+        self._session_context = ClientSession(read_stream, write_stream)
+        
+        # Enter session context and initialize
+        self.session = await self._session_context.__aenter__()
+        
+        # Initialize session and print server capabilities
+        init_result = await self.session.initialize()
+        print(f"🔗 Connected to MCP server: {init_result}")
+        
+        return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        #TODO:
-        # This is shutdown method.
-        # If session is present and session context is present as well then shutdown the session context (__aexit__ method with params)
-        # If streams context is present then shutdown the streams context (__aexit__ method with params)
-        raise NotImplementedError()
+        # Shutdown session context if present
+        if self.session and self._session_context:
+            await self._session_context.__aexit__(exc_type, exc_val, exc_tb)
+        
+        # Shutdown streams context if present
+        if self._streams_context:
+            await self._streams_context.__aexit__(exc_type, exc_val, exc_tb)
 
     async def get_tools(self) -> list[dict[str, Any]]:
         """Get available tools from MCP server"""
         if not self.session:
             raise RuntimeError("MCP client not connected. Call connect() first.")
-        #TODO:
-        # 1. Call `await self.session.list_tools()` and assign to `tools`
-        # 2. Return list with dicts with tool schemas. It should be provided according to DIAL specification
-        #    https://dialx.ai/dial_api#operation/sendChatCompletionRequest (request -> tools)
-        raise NotImplementedError()
+        
+        # List tools from MCP server
+        tools_response = await self.session.list_tools()
+        
+        # Convert MCP tool schema to OpenAI/DIAL function schema format
+        dial_tools = []
+        for tool in tools_response.tools:
+            dial_tool = {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "parameters": tool.inputSchema
+                }
+            }
+            dial_tools.append(dial_tool)
+        
+        return dial_tools
 
     async def call_tool(self, tool_name: str, tool_args: dict[str, Any]) -> Any:
         """Call a specific tool on the MCP server"""
         if not self.session:
             raise RuntimeError("MCP client not connected. Call connect() first.")
 
-        #TODO:
-        # 1. Call `await self.session.call_tool(tool_name, tool_args)` and assign to `tool_result: CallToolResult` variable
-        # 2. Get `content` with index `0` from `tool_result` and assign to `content` variable
-        # 3. print(f"    ⚙️: {content}\n")
-        # 4. If `isinstance(content, TextContent)` -> return content.text
-        #    else -> return content
-        raise NotImplementedError()
+        # Call the tool on MCP server
+        tool_result: CallToolResult = await self.session.call_tool(tool_name, tool_args)
+        
+        # Get first content from result
+        content = tool_result.content[0]
+        
+        # Print tool execution result
+        print(f"    ⚙️: {content}\n")
+        
+        # Return text content if available, otherwise return raw content
+        if isinstance(content, TextContent):
+            return content.text
+        else:
+            return content
 
     async def get_resources(self) -> list[Resource]:
         """Get available resources from MCP server"""
         if not self.session:
             raise RuntimeError("MCP client not connected.")
-        #TODO:
-        # Wrap into try/except (not all MCP servers have resources), get `list_resources` (it is async) and resources
-        # from it. In case of error print error and return an empty array
-        raise NotImplementedError()
+        
+        try:
+            # List resources from MCP server
+            resources_response = await self.session.list_resources()
+            return resources_response.resources
+        except Exception as e:
+            print(f"⚠️  Error getting resources: {e}")
+            return []
 
     async def get_resource(self, uri: AnyUrl) -> str:
         """Get specific resource content"""
         if not self.session:
             raise RuntimeError("MCP client not connected.")
 
-        #TODO:
-        # 1. Get resource by uri (uri is that we provided on the Server side "users-management://flow-diagram")
-        # 2. Get contents of [0] resource
-        # 3. ResourceContents has 2 types TextResourceContents and BlobResourceContents, in case if content is instance
-        #    of TextResourceContents return it is `text`, in case of BlobResourceContents return it is `blob`
-        # ---
-        # Optional: Later on in app.py you can try to fetch resource and print it (in our case it is image/png provided
-        # as bytes, but you can return on the server side some dict just to check how resources are looks like).
-        raise NotImplementedError()
+        # Get resource by URI
+        resource_response: ReadResourceResult = await self.session.read_resource(uri)
+        
+        # Get first content from resource
+        content = resource_response.contents[0]
+        
+        # Return based on content type
+        if isinstance(content, TextResourceContents):
+            return content.text
+        elif isinstance(content, BlobResourceContents):
+            return content.blob
+        else:
+            return str(content)
 
     async def get_prompts(self) -> list[Prompt]:
         """Get available prompts from MCP server"""
         if not self.session:
             raise RuntimeError("MCP client not connected.")
-        #TODO:
-        # Wrap into try/except (not all MCP servers have prompts), get `list_prompts` (it is async) and prompts
-        # from it. In case of error print error and return an empty array
-        raise NotImplementedError()
+        
+        try:
+            # List prompts from MCP server
+            prompts_response = await self.session.list_prompts()
+            return prompts_response.prompts
+        except Exception as e:
+            print(f"⚠️  Error getting prompts: {e}")
+            return []
 
     async def get_prompt(self, name: str) -> str:
         """Get specific prompt content"""
         if not self.session:
             raise RuntimeError("MCP client not connected.")
-        #TODO:
-        # 1. Get prompt by name
-        # 2. Create variable `combined_content` with empty string
-        # 3. Iterate through prompt result `messages` and:
-        #       - if `message` has attribute 'content' and is instance of TextContent then concat `combined_content`
-        #          with `message.content.text + "\n"`
-        #       - if `message` has attribute 'content' and is instance of `str` then concat `combined_content` with
-        #          with `message.content + "\n"`
-        # 4. Return `combined_content`
-        raise NotImplementedError()
+        
+        # Get prompt by name
+        prompt_response: GetPromptResult = await self.session.get_prompt(name)
+        
+        # Combine all message contents
+        combined_content = ""
+        for message in prompt_response.messages:
+            if hasattr(message, 'content'):
+                if isinstance(message.content, TextContent):
+                    combined_content += message.content.text + "\n"
+                elif isinstance(message.content, str):
+                    combined_content += message.content + "\n"
+        
+        return combined_content
